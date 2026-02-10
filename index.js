@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(cors());
@@ -11,53 +11,71 @@ app.use(express.json());
 const OFFICIAL_EMAIL = "rivanshi0948.be23@chitkara.edu.in";
 
 
-function getFibonacci(n) {
-  if (n <= 0) return [];
-  const result = [0];
-  if (n === 1) return result;
-  result.push(1);
-  for (let i = 2; i < n; i++) {
-    result.push(result[i - 1] + result[i - 2]);
-  }
-  return result;
-}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-function isPrime(num) {
-  if (num < 2) return false;
-  for (let i = 2; i * i <= num; i++) {
-    if (num % i === 0) return false;
+
+const isPrime = (n) => {
+  if (n < 2) return false;
+  for (let i = 2; i * i <= n; i++) {
+    if (n % i === 0) return false;
   }
   return true;
-}
+};
 
-function gcd(a, b) {
+const fibonacci = (n) => {
+  if (n <= 0) return [];
+  if (n === 1) return [0];
+
+  const arr = [0, 1];
+  for (let i = 2; i < n; i++) {
+    arr.push(arr[i - 1] + arr[i - 2]);
+  }
+  return arr;
+};
+
+const gcd = (a, b) => {
+  a = Math.abs(a);
+  b = Math.abs(b);
   while (b !== 0) {
-    let t = b;
+    const t = b;
     b = a % b;
     a = t;
   }
-  return Math.abs(a);
-}
+  return a;
+};
 
-function hcfArray(arr) {
-  return arr.reduce((acc, val) => gcd(acc, val));
-}
+const lcmTwo = (a, b) => Math.abs(a * b) / gcd(a, b);
 
-function lcm(a, b) {
-  return Math.abs(a * b) / gcd(a, b);
-}
+const lcmArray = (arr) => arr.reduce((a, b) => lcmTwo(a, b));
 
-function lcmArray(arr) {
-  return arr.reduce((acc, val) => lcm(acc, val));
-}
+const hcfArray = (arr) => arr.reduce((a, b) => gcd(a, b));
 
 
-app.get("/health", (req, res) => {
-  res.json({
-    is_success: true,
-    official_email: OFFICIAL_EMAIL
-  });
-});
+
+ const askAI = async (question) => {
+  try {
+    const result = await model.generateContent(
+      question + "\nAnswer in exactly one single word."
+    );
+
+    let text = result.response.text().trim();
+
+    text = text.replace(/\*\*/g, "");
+    text = text.replace(/[^\w\s]/g, "").trim();
+
+  
+    const words = text.split(/\s+/);
+
+    
+    return words[words.length - 1];
+
+  } catch (e) {
+    console.error("AI Error:", e);
+    return "Error";
+  }
+};
+
 
 
 app.post("/bfhl", async (req, res) => {
@@ -68,184 +86,85 @@ app.post("/bfhl", async (req, res) => {
       return res.status(400).json({ is_success: false });
     }
 
-    if ("fibonacci" in body) {
-      const n = body.fibonacci;
-      if (typeof n !== "number" || n < 0) {
-        return res.status(400).json({ is_success: false });
-      }
-      const data = getFibonacci(n);
-      return res.json({
-        is_success: true,
-        official_email: OFFICIAL_EMAIL,
-        data
-      });
-    }
+    const keys = Object.keys(body);
 
-    else if ("prime" in body) {
-      const arr = body.prime;
-      if (!Array.isArray(arr)) {
-        return res.status(400).json({ is_success: false });
-      }
-      const data = arr.filter(x => Number.isInteger(x) && isPrime(x));
-      return res.json({
-        is_success: true,
-        official_email: OFFICIAL_EMAIL,
-        data
-      });
-    }
-
-    else if ("lcm" in body) {
-      const arr = body.lcm;
-      if (!Array.isArray(arr) || arr.length === 0) {
-        return res.status(400).json({ is_success: false });
-      }
-      const valid = arr.every(x => typeof x === "number");
-      if (!valid) {
-        return res.status(400).json({ is_success: false });
-      }
-      const data = lcmArray(arr);
-      return res.json({
-        is_success: true,
-        official_email: OFFICIAL_EMAIL,
-        data
-      });
-    }
-
-    else if ("hcf" in body) {
-      const arr = body.hcf;
-      if (!Array.isArray(arr) || arr.length === 0) {
-        return res.status(400).json({ is_success: false });
-      }
-      const valid = arr.every(x => typeof x === "number");
-      if (!valid) {
-        return res.status(400).json({ is_success: false });
-      }
-      const data = hcfArray(arr);
-      return res.json({
-        is_success: true,
-        official_email: OFFICIAL_EMAIL,
-        data
-      });
-    }
-
-    else if ("AI" in body) {
-      const question = body.AI;
-      if (typeof question !== "string" || question.trim() === "") {
-        return res.status(400).json({ is_success: false });
-      }
-
-      try {
-        // Try HuggingFace Inference API (FREE, no key needed)
-        const response = await axios.post(
-          'https://api-inference.huggingface.co/models/microsoft/phi-2',
-          {
-            inputs: `Question: ${question}\nAnswer in one word only:\nAnswer:`,
-            parameters: {
-              max_new_tokens: 5,
-              temperature: 0.1,
-              return_full_text: false
-            }
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            timeout: 5000
-          }
-        );
-
-        let answer = "";
-        if (Array.isArray(response.data) && response.data[0]?.generated_text) {
-          answer = response.data[0].generated_text.trim();
-        } else if (response.data?.generated_text) {
-          answer = response.data.generated_text.trim();
-        }
-        
-        answer = answer.replace(/[.,!?;]/g, '').split(/\s+/)[0];
-
-        if (answer) {
-          return res.json({
-            is_success: true,
-            official_email: OFFICIAL_EMAIL,
-            data: answer
-          });
-        }
-        
-      } catch (aiError) {
-        console.log("AI API failed, using fallback patterns");
-      }
-
-      // GUARANTEED FALLBACK - Pattern matching for common questions
-      const q = question.toLowerCase();
-      let answer = "Unknown";
-      
-      // Capital cities
-      if (q.includes('capital') && q.includes('maharashtra')) answer = "Mumbai";
-      else if (q.includes('capital') && q.includes('india') && !q.includes('maharashtra')) answer = "Delhi";
-      else if (q.includes('capital') && q.includes('france')) answer = "Paris";
-      else if (q.includes('capital') && (q.includes('usa') || q.includes('america'))) answer = "Washington";
-      else if (q.includes('capital') && (q.includes('uk') || q.includes('britain') || q.includes('england'))) answer = "London";
-      else if (q.includes('capital') && q.includes('japan')) answer = "Tokyo";
-      else if (q.includes('capital') && q.includes('china')) answer = "Beijing";
-      else if (q.includes('capital') && q.includes('germany')) answer = "Berlin";
-      else if (q.includes('capital') && q.includes('russia')) answer = "Moscow";
-      else if (q.includes('capital') && q.includes('australia')) answer = "Canberra";
-      
-      // Leaders
-      else if (q.includes('prime minister') && q.includes('india')) answer = "Modi";
-      else if (q.includes('president') && q.includes('india')) answer = "Murmu";
-      else if (q.includes('president') && (q.includes('usa') || q.includes('america'))) answer = "Trump";
-      
-      // Geography
-      else if (q.includes('largest') && q.includes('country')) answer = "Russia";
-      else if (q.includes('largest') && q.includes('planet')) answer = "Jupiter";
-      else if (q.includes('smallest') && q.includes('planet')) answer = "Mercury";
-      else if (q.includes('highest') && q.includes('mountain')) answer = "Everest";
-      else if (q.includes('longest') && q.includes('river')) answer = "Nile";
-      else if (q.includes('largest') && q.includes('ocean')) answer = "Pacific";
-      else if (q.includes('blue') && q.includes('planet')) answer = "Earth";
-      else if (q.includes('red') && q.includes('planet')) answer = "Mars";
-      
-      // Animals
-      else if (q.includes('fastest') && q.includes('animal')) answer = "Cheetah";
-      else if (q.includes('largest') && q.includes('animal')) answer = "Whale";
-      else if (q.includes('national') && q.includes('animal') && q.includes('india')) answer = "Tiger";
-      else if (q.includes('national') && q.includes('bird') && q.includes('india')) answer = "Peacock";
-      
-      // Currency
-      else if (q.includes('currency') && q.includes('india')) answer = "Rupee";
-      else if (q.includes('currency') && (q.includes('usa') || q.includes('america'))) answer = "Dollar";
-      else if (q.includes('currency') && q.includes('japan')) answer = "Yen";
-      else if (q.includes('currency') && (q.includes('uk') || q.includes('britain'))) answer = "Pound";
-      
-      // Science
-      else if (q.includes('invented') && q.includes('computer')) answer = "Babbage";
-      else if (q.includes('discovered') && q.includes('gravity')) answer = "Newton";
-      else if (q.includes('theory') && q.includes('relativity')) answer = "Einstein";
-      else if (q.includes('speed') && q.includes('light')) answer = "299792458";
-      
-      // Colors
-      else if (q.includes('color') && q.includes('sky')) answer = "Blue";
-      else if (q.includes('color') && q.includes('sun')) answer = "Yellow";
-
-      return res.json({
-        is_success: true,
-        official_email: OFFICIAL_EMAIL,
-        data: answer
-      });
-    }
-
-    else {
+    if (keys.length !== 1) {
       return res.status(400).json({ is_success: false });
     }
 
-  } catch (error) {
-    console.log("ERROR:", error.message);
+    const key = keys[0];
+    const value = body[key];
+
+    let result;
+
+    switch (key) {
+
+      case "fibonacci":
+        if (typeof value !== "number" || value < 0) {
+          return res.status(400).json({ is_success: false });
+        }
+        result = fibonacci(value);
+        break;
+
+      case "prime":
+        if (!Array.isArray(value)) {
+          return res.status(400).json({ is_success: false });
+        }
+        result = value.filter(v => Number.isInteger(v) && isPrime(v));
+        break;
+
+      case "lcm":
+        if (!Array.isArray(value) || value.length === 0) {
+          return res.status(400).json({ is_success: false });
+        }
+        if (!value.every(v => typeof v === "number")) {
+          return res.status(400).json({ is_success: false });
+        }
+        result = lcmArray(value);
+        break;
+
+      case "hcf":
+        if (!Array.isArray(value) || value.length === 0) {
+          return res.status(400).json({ is_success: false });
+        }
+        if (!value.every(v => typeof v === "number")) {
+          return res.status(400).json({ is_success: false });
+        }
+        result = hcfArray(value);
+        break;
+
+      case "AI":
+        if (typeof value !== "string" || value.trim() === "") {
+          return res.status(400).json({ is_success: false });
+        }
+        result = await askAI(value);
+        break;
+
+      default:
+        return res.status(400).json({ is_success: false });
+    }
+
+    return res.json({
+      is_success: true,
+      official_email: OFFICIAL_EMAIL,
+      data: result
+    });
+
+  } catch (err) {
+    console.error(err);
     return res.status(500).json({ is_success: false });
   }
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    is_success: true,
+    official_email: OFFICIAL_EMAIL
+  });
+});
+
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
 });
